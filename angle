@@ -1,0 +1,204 @@
+#include <deneyap.h>
+
+// ---------------------- PIN TANIMLARI -----------------------
+
+// Motor A (Sağ motor)
+#define ENA D0
+#define IN1 D12
+#define IN2 D13
+
+// Motor B (Sol motor)
+#define ENB D1
+#define IN3 D15
+#define IN4 D14
+
+// Çizgi sensörleri
+#define sensorPinA D4   // Orta
+#define sensorPinB D9   // Sol
+#define sensorPinC D10  // Sağ
+#define sensorObstacle D11 // Engel sensörü (IR)
+
+// Ultrasonik sensör
+#define trigPin A4
+#define echoPin A2
+
+// ---------------------- GLOBAL DEĞİŞKENLER -----------------------
+
+long sure, mesafe;
+int motorHizi = 120;
+
+void setup() {
+  // Motor pinleri
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  // Sensör pinleri
+  pinMode(sensorPinA, INPUT);
+  pinMode(sensorPinB, INPUT);
+  pinMode(sensorPinC, INPUT);
+  pinMode(sensorObstacle, INPUT);
+
+  // Ultrasonik pinler
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  Serial.begin(9600);
+  dur();
+  delay(2000);
+}
+
+void loop() {
+  int valA = digitalRead(sensorPinA); // Orta
+  int valB = digitalRead(sensorPinB); // Sol
+  int valC = digitalRead(sensorPinC); // Sağ
+  int valObs = digitalRead(sensorObstacle); // Engel sensörü
+
+  Serial.print("Orta: ");
+  Serial.print(valA == HIGH ? "Siyah\t" : "Beyaz\t");
+  Serial.print("Sol: ");
+  Serial.print(valB == HIGH ? "Siyah\t" : "Beyaz\t");
+  Serial.print("Sağ: ");
+  Serial.println(valC == HIGH ? "Siyah" : "Beyaz");
+
+  if (valObs == LOW) {
+    Serial.println("Engel algılandı, yay çiziliyor...");
+    geri();
+    delay(500);
+    yayCiz();
+  } else {
+    if (valB == LOW && valC == LOW) {
+      ileri();
+    } else if (valC == HIGH && valB == LOW) {
+      sagaDon();
+    } else if (valB == HIGH && valC == LOW) {
+      solaDon();
+    } else if (valA == LOW) {
+      ileri();
+    } else {
+      Serial.println("Kayboldu! Çizgi aranıyor...");
+      dur();
+    }
+  }
+
+  delay(100);
+}
+
+// ---------------------- MOTOR HAREKETLERİ -----------------------
+
+void ileri() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, motorHizi);
+}
+
+void geri() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, motorHizi);
+}
+
+void solaDon() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, 0);
+  analogWrite(ENB, motorHizi);
+}
+
+void sagaDon() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, 0);
+}
+
+void dur() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
+
+// ---------------------- MESAFE ÖLÇÜMÜ -----------------------
+
+long distanceMeasure() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(3);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  sure = pulseIn(echoPin, HIGH);
+  mesafe = (sure / 2) * 0.0343;
+  Serial.print(mesafe);
+  Serial.println(" cm uzaklıkta");
+  return mesafe;
+}
+
+// ---------------------- YAY ÇİZME (Yarım daire – sağa) -----------------------
+
+void yayCiz() {
+  unsigned long baslangicZamani = millis();
+  unsigned long yaySuresi = 3000; // Yarım daire için ideal süre
+
+  while (millis() - baslangicZamani < yaySuresi) {
+    long mesafe = distanceMeasure();
+
+    // Eğer çizgiye denk geldiyse yay çizmeyi erken bitir
+    if (digitalRead(sensorPinA) == HIGH || digitalRead(sensorPinB) == HIGH || digitalRead(sensorPinC) == HIGH) {
+      Serial.println("Çizgi bulundu, yay tamamlandı.");
+      break;
+    }
+
+    if (mesafe > 6) {
+      // Düz devam et – sol hızlı, sağ yavaş (sağa doğru yay)
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      digitalWrite(IN3, HIGH);
+      digitalWrite(IN4, LOW);
+      analogWrite(ENA, motorHizi / 2);
+      analogWrite(ENB, motorHizi);
+    } else if (mesafe < 4) {
+      // Düzelt – daha keskin sağ
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      digitalWrite(IN3, HIGH);
+      digitalWrite(IN4, LOW);
+      analogWrite(ENA, motorHizi / 3);
+      analogWrite(ENB, motorHizi);
+    } else {
+      // Standart sağa yay çiz
+      digitalWrite(IN1, HIGH);
+      digitalWrite(IN2, LOW);
+      digitalWrite(IN3, HIGH);
+      digitalWrite(IN4, LOW);
+      analogWrite(ENA, motorHizi / 2);
+      analogWrite(ENB, motorHizi);
+    }
+
+    delay(100);
+  }
+
+  dur();
+  delay(300);
+}
