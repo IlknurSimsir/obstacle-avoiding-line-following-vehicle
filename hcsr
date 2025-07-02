@@ -1,0 +1,151 @@
+#include <deneyap.h>
+
+// Motor A (Sağ motor)
+#define ENA D0
+#define IN1 D12
+#define IN2 D13
+
+// Motor B (Sol motor)
+#define ENB D1
+#define IN3 D15
+#define IN4 D14
+
+// Sensörler
+#define sensorPinA D4   // Orta
+#define sensorPinB D9   // Sol
+#define sensorPinC D10  // Sağ
+#define sensorObstacle D11 // Engel
+
+// HCSR
+#define trigPin A4
+#define echoPin A2
+long sure, mesafe,distance;
+
+int motorHizi = 100;
+
+void setup() {
+  // Motor pinleri
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  // Sensör pinleri
+  pinMode(sensorPinA, INPUT);
+  pinMode(sensorPinB, INPUT);
+  pinMode(sensorPinC, INPUT);
+  pinMode(sensorObstacle, INPUT);
+  // HCSR pini
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  Serial.begin(9600);
+  dur(); // Başta dur
+  delay(2000);
+}
+
+void loop() {
+  // Sensör okumaları
+  int valA = digitalRead(sensorPinA); // Orta
+  int valB = digitalRead(sensorPinB); // Sol
+  int valC = digitalRead(sensorPinC); // Sağ
+  int valObs = digitalRead(sensorObstacle); // Engel
+
+  Serial.print("Orta: ");
+  Serial.print(valA == HIGH ? "Siyah\t" : "Beyaz\t");
+  Serial.print("Sol: ");
+  Serial.print(valB == HIGH ? "Siyah\t" : "Beyaz\t");
+  Serial.print("Sag: ");
+  Serial.println(valC == HIGH ? "Siyah" : "Beyaz");
+  if ( valObs==LOW){
+    sagaDon();
+    delay(1000);
+    distance=distanceMeasure();
+    
+    Serial.print(distance);
+    Serial.println("cm");
+  } else {
+      // Karar mantığı
+    if (valB == LOW && valC == LOW) {
+      // Hem sol hem sağ beyaz -> düz git
+      ileri();
+    } else if (valC == HIGH) {
+      // Sağ sensör siyah gördü -> sola dön
+      sagaDon();
+    } else if (valB == HIGH) {
+      // Sol sensör siyah gördü -> sağa dön
+      solaDon();
+    } else {
+      // Hiçbir şey algılanmazsa dur
+      dur();
+    }
+
+  }
+  
+  delay(100);
+}
+
+// ---------------------- MOTOR HAREKETLERİ -----------------------
+
+void ileri() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, motorHizi);
+}
+void geri() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, motorHizi);
+}
+long distanceMeasure(){
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(3);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  sure = pulseIn(echoPin, HIGH);
+  mesafe = (sure/2) * 0.0343;
+  Serial.print(mesafe);
+  Serial.println(" cm uzaklıkta");
+  return mesafe;
+}
+void solaDon() {
+  // Sol motor dur, sağ motor ileri
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, 0);
+}
+
+void sagaDon() {
+  // Sağ motor dur, sol motor ileri
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, 0);
+  analogWrite(ENB, motorHizi);
+}
+
+void dur() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
