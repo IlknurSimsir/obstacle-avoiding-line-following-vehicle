@@ -1,0 +1,188 @@
+#include <deneyap.h>
+
+// Motor A (Sağ motor)
+#define ENA D0
+#define IN1 D12
+#define IN2 D13
+
+// Motor B (Sol motor)
+#define ENB D1
+#define IN3 D15
+#define IN4 D14
+
+// Sensörler
+#define sensorPinA D4   // Orta IR (çizgi)
+#define sensorPinB D9   // Sol IR (çizgi)
+#define sensorPinC D10  // Sağ IR (çizgi)
+#define sensorObstacle D11 // Öne bakan IR (engel)
+
+#define trigPin A4      // HC-SR04 (sol mesafe ölçüm)
+#define echoPin A2
+long sure, mesafe;
+
+int motorHizi = 200;
+
+void setup() {
+  // Motor pinleri
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  // Sensör pinleri
+  pinMode(sensorPinA, INPUT);
+  pinMode(sensorPinB, INPUT);
+  pinMode(sensorPinC, INPUT);
+  pinMode(sensorObstacle, INPUT);
+
+  // Ultrasonik sensör
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+
+  Serial.begin(9600);
+  dur();
+  delay(2000);
+}
+
+void loop() {
+  int valA = digitalRead(sensorPinA); // Orta çizgi
+  int valB = digitalRead(sensorPinB); // Sol çizgi
+  int valC = digitalRead(sensorPinC); // Sağ çizgi
+  int valObs = digitalRead(sensorObstacle); // Ön IR (engel kontrol)
+
+  if (valObs == LOW) { // Engel algılandı
+    dur();
+    delay(200);
+
+    // Geri git
+    geri();
+    delay(400);
+    dur();
+    delay(200);
+
+    // Sağa yönel (engel solumuzda kalsın)
+    solaDon();
+    delay(800);
+    dur();
+    delay(200);
+    
+    // Sol tarafı kontrol et (HC-SR04)
+    long solMesafe = distanceMeasure();
+    Serial.print("Sol Mesafe: ");
+    Serial.println(solMesafe);
+    yayCiz();
+    /*if (solMesafe < 15) {
+      // Engel solumuzdaysa → sağa yay çiz
+      yayCiz();
+    }*/
+  } else {
+    // Çizgi takibi
+    if (valA == HIGH && valB == LOW && valC == LOW) {
+      ileri();
+    } else if (valC == HIGH) {
+      sagaDon();
+    } else if (valB == HIGH) {
+      solaDon();
+    } else {
+      dur();
+    }
+  }
+
+  delay(80);
+}
+
+// ------------------ Motor Fonksiyonları ------------------
+
+void ileri() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, motorHizi);
+}
+
+void geri() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, motorHizi);
+}
+
+void solaDon() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, motorHizi);
+  analogWrite(ENB, 0);
+}
+
+void sagaDon() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, motorHizi);
+}
+
+void dur() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
+
+// ------------------ Mesafe Ölçümü (HC-SR04) ------------------
+
+long distanceMeasure() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(3);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  sure = pulseIn(echoPin, HIGH);
+  mesafe = (sure / 2) * 0.0343;
+  return mesafe;
+}
+
+// ------------------ Sağa Yay Çiz ------------------
+
+void yayCiz() {
+  while (true) {
+    long solMesafe = distanceMeasure();
+
+    // Çizgi bulunduysa yay tamam
+    if (digitalRead(sensorPinA) == HIGH || digitalRead(sensorPinB) == HIGH || digitalRead(sensorPinC) == HIGH) {
+      Serial.println("Çizgi bulundu, yay tamamlandı.");
+      break;
+    }
+
+    // Engel çok yakınsa → daha keskin sağ
+    if (solMesafe < 8) {
+      analogWrite(ENA, motorHizi / 4);  // Sağ motor yavaş
+      analogWrite(ENB, motorHizi);      // Sol motor hızlı
+    } else {
+      // Standart yay
+      analogWrite(ENA, motorHizi / 2);
+      analogWrite(ENB, motorHizi);
+    }
+
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+
+    delay(100);
+  }
+
+  dur();
+  delay(300);
+}
