@@ -1,0 +1,193 @@
+#include <deneyap.h>
+
+// Motor A (Sağ)
+#define ENA D0
+#define IN1 D12
+#define IN2 D13
+
+// Motor B (Sol)
+#define ENB D1
+#define IN3 D15
+#define IN4 D14
+
+// Sensör pinleri
+#define SOL1 A0
+#define SOL2 A1
+#define ORTA1 A2
+#define ORTA2 A3
+#define SAG1 A4
+#define SAG2 A5
+#include <Deneyap_MesafeOlcerIsikAlgilayici.h>                 // Deneyap_MesafeOlcerIsikAlgilayici.h kütüphanesi eklenmesi
+
+ProximityAL Yakinlik;
+int motorHiziTemel = 180;
+int maxHiz = 255;
+
+// PID parametreleri
+float Kp = 25;
+float Ki = 0;
+float Kd = 15;
+
+int P, I, D;
+int hata = 0;
+int oncekiHata = 0;
+uint16_t yakinlikDegeri;
+int sag,orta,sol;
+void setup() {
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  pinMode(SOL1, INPUT);
+  pinMode(SOL2, INPUT);
+  pinMode(ORTA1, INPUT);
+  pinMode(ORTA2, INPUT);
+  pinMode(SAG1, INPUT);
+  pinMode(SAG2, INPUT);
+
+  Serial.begin(115200);
+  Yakinlik.begin(0x23);
+  dur();
+  delay(1000);
+}
+
+void loop() {
+  int s1 = digitalRead(SOL1);
+  int s2 = digitalRead(SOL2);
+  int m1 = digitalRead(ORTA1);
+  int m2 = digitalRead(ORTA2);
+  int d1 = digitalRead(SAG1);
+  int d2 = digitalRead(SAG2);
+
+  int sol = s1 || s2;
+  int orta = m1 || m2;
+  int sag = d1 || d2;
+
+  yakinlikDegeri = Yakinlik.getPSvalue();                    // Yakınlık degerinin alınması
+  Serial.print("Yakınlık Değeri = ");
+  Serial.println(yakinlikDegeri);
+  if (yakinlikDegeri<=60 && yakinlikDegeri >=50)
+  {
+    dur();
+    delay(300);
+
+        // Geri git
+    geri();
+    delay(400);
+    dur();
+    delay(200);
+
+    // Sağa yönel (engel solumuzda kalsın)
+    solaDon();
+    delay(400);
+    
+  yayCiz();
+  }
+
+  int toplamSensor = s1 + s2 + m1 + m2 + d1 + d2;
+  if (toplamSensor == 0) {
+    dur();
+    return;
+  }
+
+  // Keskin dönüş mantığı: İki sensör aynı anda siyahsa dön
+  if ((sol == 1) && (orta == 1) && (sag == 0)) {
+    solaDon();
+  }
+  else if ((sag == 1) && (orta == 1) && (sol == 0)) {
+    sagaDon();
+  }
+  else {
+    // PID ile pozisyon ağırlıklı hata hesabı ve motor kontrolü
+
+    int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+
+    hata = 0 - pozisyon;
+    P = hata;
+    I += hata;
+    D = hata - oncekiHata;
+    oncekiHata = hata;
+
+    int duzeltme = P * Kp + I * Ki + D * Kd;
+
+    int sagHiz = motorHiziTemel + duzeltme;
+    int solHiz = motorHiziTemel - duzeltme;
+
+    sagHiz = constrain(sagHiz, 0, maxHiz);
+    solHiz = constrain(solHiz, 0, maxHiz);
+
+    ileri(solHiz, sagHiz);
+  }
+
+  Serial.print("Sol: "); Serial.print(sol);
+  Serial.print(" Orta: "); Serial.print(orta);
+  Serial.print(" Sağ: "); Serial.print(sag);
+  Serial.print(" | Hata: "); Serial.print(hata);
+  Serial.println();
+
+  delay(10);
+}
+
+// ------------------ Motor Fonksiyonları ------------------
+
+void ileri(int sol, int sag) {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(ENA, sag);
+  analogWrite(ENB, sol);
+}
+void geri() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  analogWrite(ENA, 100);
+  analogWrite(ENB, 100);
+}
+void solaDon() {
+  // Sağ motor ileri, sol motor geri (yerinde dönme)
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  analogWrite(ENA, 180);
+  analogWrite(ENB, 180);
+}
+
+void sagaDon() {
+  // Sol motor ileri, sağ motor geri (yerinde dönme)
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(ENA, 180);
+  analogWrite(ENB, 180);
+}
+
+void dur() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
+void yayCiz() {
+  while (true) {
+    
+
+    // Çizgi bulunduysa yay tamam
+    if (sag == HIGH || orta == HIGH || sol == HIGH) {
+      Serial.println("Çizgi bulundu, yay tamamlandı.");
+      break;
+    }
+
+    analogWrite(ENA, 90);
+    analogWrite(ENB, 180);
+    
+    digitalWrite(IN1, HIGH);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, HIGH);
+    digitalWrite(IN4, LOW);
+
+    delay(100);
+  }
+
+  dur();
+  delay(300);
+}
