@@ -1,0 +1,214 @@
+#include <deneyap.h>
+#include <Deneyap_CiftKanalliCizgiAlgilama.h> 
+#include <Deneyap_MesafeOlcerIsikAlgilayici.h> 
+
+// Motor A (Sağ)
+#define ENA D0
+#define IN1 D12
+#define IN2 D13
+
+// Motor B (Sol)
+#define ENB D1
+#define IN3 D15
+#define IN4 D14
+
+// Sensör nesneleri
+LineFollower Sag;
+LineFollower Orta;
+LineFollower Sol; 
+ProximityAL Yakinlik;
+
+// Motor hızları ve PID parametreleri
+int motorHiziTemel = 180;
+int maxHiz = 255;
+
+float Kp = 20;
+float Ki = 0;
+float Kd = 18;
+
+float P, I, D;
+float hata = 0;
+float oncekiHata = 0;
+
+const int filtreBoyutu = 10;
+float hataBuffer[filtreBoyutu];
+int bufferIndex = 0;
+
+// Durum kontrol
+bool pidBasladi = false;
+
+// Sensör durumları
+int s1, s2, m1, m2, d1, d2;
+int sol, orta, sag;
+uint16_t yakinlikDegeri;
+
+// ------------------ Kurulum ------------------
+void setup() {
+  pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
+
+  Sag.begin(0x07);
+  Orta.begin(0x03);
+  Sol.begin(0x08);
+  Yakinlik.begin(0x23);
+
+  Serial.begin(115200);
+  dur();
+  delay(1000);
+}
+
+// ------------------ Ana Döngü ------------------
+void loop() {
+  sensorOku();
+
+  // Başlangıçta çizgi ortalanana kadar düz git
+  if (!pidBasladi) {
+    if (orta == 1) {
+      pidBasladi = true;
+    } else {
+      ileri(100, 100);  // Yavaşça ileri git
+      return;
+    }
+  }
+
+  yakinlikDegeri = Yakinlik.getPSvalue();
+  Serial.print("Yakınlık Değeri = ");
+  Serial.println(yakinlikDegeri);
+
+  // Engel algılandıysa yay çiz
+  if (yakinlikDegeri <= 60 && yakinlikDegeri >= 50) {
+    dur(); delay(300);
+    geri(); delay(400);
+    dur(); delay(200);
+    solaDon(); delay(400);
+    yayCiz();  // çizgiye dön
+  }
+
+  int toplamSensor = s1 + s2 + m1 + m2 + d1 + d2;
+  if (toplamSensor == 0) {
+    dur();
+    return;
+  }
+
+  // Keskin dönüş koşulları
+  if ((sol == 1) && (orta == 1) && (sag == 0)) {
+    solaDon();
+  } else if ((sag == 1) && (orta == 1) && (sol == 0)) {
+    sagaDon();
+  } else {
+    pidKontrol();
+  }
+
+  // Debug
+  Serial.print("Sol: "); Serial.print(sol);
+  Serial.print(" Orta: "); Serial.print(orta);
+  Serial.print(" Sağ: "); Serial.print(sag);
+  Serial.print(" | Hata: "); Serial.print(hata);
+  Serial.println();
+
+  delay(10);
+}
+
+// ------------------ PID Kontrol Fonksiyonu ------------------
+void pidKontrol() {
+  int pozisyon = (-3) * s1 + (-2) * s2 + (0) * m1 + (0) * m2 + (2) * d1 + (3) * d2;
+  float yeniHata = 0 - pozisyon;
+
+  // Filtreye ekle
+  hataBuffer[bufferIndex] = yeniHata;
+  bufferIndex = (bufferIndex + 1) % filtreBoyutu;
+
+  // Ortalama hata hesabı
+  float toplam = 0;
+  for (int i = 0; i < filtreBoyutu; i++) {
+    toplam += hataBuffer[i];
+  }
+  hata = toplam / filtreBoyutu;
+
+  P = hata;
+  I += hata;
+  D = hata - oncekiHata;
+  oncekiHata = hata;
+
+  float duzeltme = P * Kp + I * Ki + D * Kd;
+
+  int sagHiz = motorHiziTemel + duzeltme;
+  int solHiz = motorHiziTemel - duzeltme;
+
+  sagHiz = constrain(sagHiz, 0, maxHiz);
+  solHiz = constrain(solHiz, 0, maxHiz);
+
+  ileri(solHiz, sagHiz);
+}
+
+// ------------------ Sensör Okuma ------------------
+void sensorOku() {
+  s1 = Sol.ReadLineFollowerDigital1();
+  s2 = Sol.ReadLineFollowerDigital2();
+  m1 = Orta.ReadLineFollowerDigital1();
+  m2 = Orta.ReadLineFollowerDigital2();
+  d1 = Sag.ReadLineFollowerDigital1();
+  d2 = Sag.ReadLineFollowerDigital2();
+
+  sol = s1 || s2;
+  orta = m1 || m2;
+  sag = d1 || d2;
+}
+
+// ------------------ Yay Çiz ------------------
+void yayCiz() {
+  while (true) {
+    sensorOku();
+    if (sol == 1 || orta == 1 || sag == 1) {
+      Serial.println("Çizgi bulundu, yay tamam.");
+      break;
+    }
+
+    analogWrite(ENA, 90);
+    analogWrite(ENB, 180);
+    digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+    digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+
+    delay(100);
+  }
+
+  dur();
+  delay(300);
+}
+
+// ------------------ Motor Fonksiyonları ------------------
+void ileri(int sol, int sag) {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(ENA, sag);
+  analogWrite(ENB, sol);
+}
+
+void geri() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  analogWrite(ENA, 100);
+  analogWrite(ENB, 100);
+}
+
+void solaDon() {
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, HIGH);
+  analogWrite(ENA, 180);
+  analogWrite(ENB, 180);
+}
+
+void sagaDon() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+  analogWrite(ENA, 180);
+  analogWrite(ENB, 180);
+}
+
+void dur() {
+  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
