@@ -47,9 +47,9 @@
         <div id="label_13" class="label" style="left: 810px; top: 10px; width: 171px; height: 16px;">Manuel Kontrol:</div>
         <div id="label_15" class="label" style="font-size: 11pt; left: 360px; top: 280px; width: 171px; height: 16px;">ŞARJ İHTİYACI :</div>
         <div id="label_16" class="label" style="font-size: 11pt; left: 540px; top: 276px; width: 91px; height: 20px;">OLUMSUZ</div>
-        <!-- label_17 KALDIRILDI -->
+        <div id="label_17" class="label" style="left: 10px; top: 370px; width: 111px; height: 21px;">QR BİLGİSİ:</div>
         <div id="label_19" class="label" style="font-size: 14pt; left: 360px; top: 360px; width: 91px; height: 31px;">HARİTA:</div>
-        <div id="label_14" class="label" style="left: 20px; top: 370px; width: 290px; height: 100px;">Barkod Bekleniyor...</div>
+        <div id="label_14" class="label" style="left: 20px; top: 370px; width: 290px; height: 150px;">Barkod Bekleniyor...</div>
         <div id="label_21" class="label" style="left: 360px; top: 300px; width: 231px; height: 31px;">MİNİMUM ŞARJ LİMİTİ:</div>
         <div id="label_22" class="label" style="left: 590px; top: 300px; width: 71px; height: 31px;">%10</div>
         <div id="label_23" class="label" style="font-size: 10pt; left: 20px; top: 750px; width: 311px; height: 20px;">15 SANİYE BOYUNCA SESLİ UYARI VERİLECEK</div>
@@ -147,14 +147,24 @@
     </script>
 <script>
 function barkodGetir() {
+    // Önce alanı temizle
+    document.getElementById('barkodAlani').innerText = "";
+
     fetch('/api/barkod')
         .then(r => r.json())
         .then(data => {
-            // DEĞİŞİKLİK: Veriyi artık 'label_14' elemanına yazıyoruz.
-            document.getElementById('label_14').innerText = data.barkod || "Barkod Bekleniyor...";
+            if (data.barkod) {
+                document.getElementById('barkodAlani').innerText = data.barkod;
+            } else {
+                document.getElementById('barkodAlani').innerText = "Henüz barkod okunmadı";
+            }
+        })
+        .catch(() => {
+            document.getElementById('barkodAlani').innerText = "Bağlantı hatası";
         });
 }
-setInterval(barkodGetir, 1000); // Her 1 sn'de bir güncelle
+
 </script>
+
 </body>
 </html>
