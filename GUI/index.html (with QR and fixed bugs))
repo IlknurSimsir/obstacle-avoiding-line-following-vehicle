@@ -166,5 +166,17 @@ function barkodGetir() {
 
 </script>
 
+
+<script>
+function barkodGetir() {
+    document.getElementById('barkodAlani').innerText = "";
+    fetch('/api/barkod')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('barkodAlani').innerText = data.barkod || "Henüz barkod okunmadı";
+        });
+}
+setInterval(barkodGetir, 500); // Her 1 sn'de bir güncelle
+</script>
 </body>
 </html>
