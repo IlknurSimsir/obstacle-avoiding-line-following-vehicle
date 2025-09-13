@@ -1,0 +1,76 @@
+#include <SoftwareSerial.h>
+#include <DFRobotDFPlayerMini.h>
+#include "mp3tf16p.h"
+
+SoftwareSerial mp3Serial(10, 11); // RX, TX
+DFRobotDFPlayerMini mp3;
+
+#define alindi 7      // Engel görüldüğünde oynatılacak ses
+#define birakildi 10  // Engel kalktığında oynatılacak ses
+
+#define trigPin 2
+#define echoPin 3
+
+unsigned long sure;
+int mesafe;
+bool engelVardi = false;   // önceki durumu saklar
+
+#define ENGEL_LIMIT 20     // Engel mesafesi eşiği (cm)
+
+void setup() {
+  Serial.begin(9600);
+  mp3Serial.begin(9600);
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  digitalWrite(trigPin, LOW);
+
+  delay(100);
+
+  if (!mp3.begin(mp3Serial)) {
+    Serial.println("MP3 modülü bulunamadı! Bağlantıları kontrol et.");
+    while (true) { delay(1000); }
+  }
+
+  mp3.volume(30); // Ses seviyesi (0–30)
+  Serial.println("MP3 modülü hazır.");
+}
+
+void loop() {
+  // Mesafe ölçümü
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  sure = pulseIn(echoPin, HIGH, 30000);
+  if (sure == 0) {
+    mesafe = 999;  // Echo gelmedi
+  } else {
+    mesafe = sure * 0.034 / 2; // cm
+  }
+
+  Serial.print("Mesafe: ");
+  Serial.print(mesafe);
+  Serial.println(" cm");
+
+  // Engel algılandı
+  if (mesafe > 0 && mesafe < ENGEL_LIMIT) {
+    if (!engelVardi) {         // sadece yeni algılandığında
+      mp3.play(alindi);
+      Serial.println("ALINDI -> Engel görüldü");
+      engelVardi = true;
+    }
+  } 
+  // Engel kalktı
+  else {
+    if (engelVardi) {          // sadece yeni kalktığında
+      mp3.play(birakildi);
+      Serial.println("BIRAKILDI -> Engel kayboldu");
+      engelVardi = false;
+    }
+  }
+
+  delay(100);
+}
