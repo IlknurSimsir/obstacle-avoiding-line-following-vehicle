@@ -1,0 +1,535 @@
+#include <Deneyap_CiftKanalliCizgiAlgilama.h> 
+#include <Deneyap_MesafeOlcerIsikAlgilayici.h>  
+// PİD İLE
+
+int solHiz = 0;
+int sagHiz = 0;
+int erc = 0;
+
+#define SOL_ILERLE D8
+#define SOL_GERI   D9
+#define SAG_ILERLE D0
+#define SAG_GERI   D1
+#define BUZZER     D4
+
+int yuksuz1_state;
+
+uint16_t yakinlikDegeri;                                     
+
+ProximityAL Yakinlik;     
+LineFollower Sol;
+LineFollower Orta;
+LineFollower Sag;
+
+float Kp = 25;
+float Ki = 0;
+float Kd = 15;
+float geriKp = 15; // Sadece geri_pid için kullanılacak Kp değeri
+
+int s1, s2, m1, m2, d1, d2;
+int sol, orta, sag;
+int P, I, D;
+int hata = 0;
+int oncekiHata = 0;
+int motorHiziTemel = 120;
+int maxHiz = 160;
+
+
+void ileri(int solHiz, int sagHiz);
+void geri(int hiz = 50);
+void solaDon(int hiz = 90);
+void sagaDon(int hiz = 90);
+void dur();
+void donus360(int hiz);
+void geri_pid(int solHiz, int sagHiz);  // Prototip bildirimi
+void yukal();
+void kenar_sag();
+void kenar_sol();
+void ikili_sag();
+void ikili_sol();
+
+void setup() {
+  pinMode(SOL_ILERLE, OUTPUT);
+  pinMode(SOL_GERI, OUTPUT);
+  pinMode(SAG_ILERLE, OUTPUT);
+  pinMode(SAG_GERI, OUTPUT);
+  pinMode(BUZZER, OUTPUT);
+  digitalWrite(SOL_ILERLE, LOW);
+  digitalWrite(SOL_GERI, LOW);
+  digitalWrite(SAG_ILERLE, LOW);
+  digitalWrite(SAG_GERI, LOW);
+  digitalWrite(BUZZER, HIGH);
+  delay(1000);
+  digitalWrite(BUZZER, 0);
+  Serial.begin(115200);   
+
+  Sol.begin(0x08);
+  Orta.begin(0x03);
+  Sag.begin(0x07);  
+}
+
+
+
+void loop() {
+
+  // Sensörleri oku
+  s1 = Sol.ReadLineFollowerDigital1();
+  s2 = Sol.ReadLineFollowerDigital2();
+  m1 = Orta.ReadLineFollowerDigital1();
+  m2 = Orta.ReadLineFollowerDigital2();
+  d1 = Sag.ReadLineFollowerDigital1();
+  d2 = Sag.ReadLineFollowerDigital2();
+
+  sol = s1 || s2;
+  orta = m1 || m2;
+  sag = d1 || d2;
+
+
+  // Çizgi kaybolduysa (line reacquisition)
+  if ((s1 + s2 + m1 + m2 + d1 + d2) == 0) {
+    if (oncekiHata > 0) {
+      solaDon(100);  // Son hata sağ → sağa arama
+    } else {
+      sagaDon(100);  // Son hata sol → sola arama
+    }
+
+    unsigned long basla = millis();
+    while (millis() - basla < 1500) { // 1,5 sn arama
+      s1 = Sol.ReadLineFollowerDigital1();
+      s2 = Sol.ReadLineFollowerDigital2();
+      m1 = Orta.ReadLineFollowerDigital1();
+      m2 = Orta.ReadLineFollowerDigital2();
+      d1 = Sag.ReadLineFollowerDigital1();
+      d2 = Sag.ReadLineFollowerDigital2();
+      if (s1 || s2 || m1 || m2 || d1 || d2) break; // Bulundu
+      delay(10);
+    }
+  }
+
+  // Normal PID takibi
+  int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+  hata = 0 - pozisyon;
+  P = hata;
+  I += hata;
+  D = hata - oncekiHata;
+  oncekiHata = hata;
+
+  int duzeltme = P * Kp + I * Ki + D * Kd;
+
+  solHiz = motorHiziTemel - duzeltme;
+  sagHiz = motorHiziTemel + duzeltme;
+
+
+  solHiz = constrain(solHiz, -maxHiz, maxHiz);
+  sagHiz = constrain(sagHiz, -maxHiz, maxHiz);
+
+  ileri(solHiz, sagHiz);
+  delay(10);
+
+    if(((Sol.ReadLineFollowerDigital1() && Sol.ReadLineFollowerDigital2() && 
+                Orta.ReadLineFollowerDigital1()) && (Orta.ReadLineFollowerDigital2() && 
+                Sag.ReadLineFollowerDigital1() && Sag.ReadLineFollowerDigital2())) && (erc == 0)) {
+                  solaDon(100);
+                   }
+
+  while (Serial.available()) {
+    String data = Serial.readStringUntil('\n');
+    data.trim();
+
+
+    if ((data == "QA3.4") && (erc == 0)){
+      erc++;
+    }
+
+    if ((data == "QA3.2") && (erc == 1)){
+      erc++;
+    }
+
+    if ((data == "QA3.1") && (erc == 2)){
+      yukal();
+    }
+
+        if ((data == "QA3.2") && (erc == 3)){
+      kenar_sag();
+    }
+
+
+      if ((data == "QA4.3") && (erc == 4)){
+      ikili_sag();
+    }
+
+            if ((data == "QB4.1") && (erc == 5)){
+      yukal();
+    }
+
+      if ((data == "QB2.4") && (erc == 6)){
+      ikili_sol();
+    }
+
+      if ((data == "QA1.3") && (erc == 7)){
+      kenar_sag();
+    }
+
+      if ((data == "QA1.1") && (erc == 8)){
+      yukal();
+    }
+
+          if ((data == "QA1.2") && (erc == 9)){
+      kenar_sol();
+    }
+
+          if ((data == "QB2.3") && (erc == 10)){
+      ikili_sol();
+    }
+
+          if ((data == "QB4.4") && (erc == 11)){
+      ikili_sag();
+    }
+
+      if ((data == "QA3.3") && (erc == 12)){
+      ikili_sol();
+    }
+
+  }
+    }
+void geri_pid(int solHiz, int sagHiz) {
+    analogWrite(SOL_ILERLE, 0);
+    analogWrite(SOL_GERI, sagHiz);
+    analogWrite(SAG_ILERLE, 0);
+    analogWrite(SAG_GERI, solHiz);
+    }
+void ileri(int solHiz, int sagHiz) {
+  if (solHiz >= 0) {
+    analogWrite(SOL_ILERLE, solHiz);
+    analogWrite(SOL_GERI, 0);
+  } else {
+    analogWrite(SOL_ILERLE, 0);
+    analogWrite(SOL_GERI, -solHiz);
+  }
+  if (sagHiz >= 0) {
+    analogWrite(SAG_ILERLE, sagHiz);
+    analogWrite(SAG_GERI, 0);
+  } else {
+    analogWrite(SAG_ILERLE, 0);
+    analogWrite(SAG_GERI, -sagHiz);
+  }
+}
+
+void geri(int hiz) {
+  analogWrite(SOL_ILERLE, 0);
+  analogWrite(SOL_GERI, hiz);
+  analogWrite(SAG_ILERLE, 0);
+  analogWrite(SAG_GERI, hiz);
+}
+
+void solaDon(int hiz) {
+  analogWrite(SOL_ILERLE, 0);
+  analogWrite(SOL_GERI, hiz);
+  analogWrite(SAG_ILERLE, hiz);
+  analogWrite(SAG_GERI, 0);
+}
+
+void sagaDon(int hiz) {
+  analogWrite(SOL_ILERLE, hiz);
+  analogWrite(SOL_GERI, 0);
+  analogWrite(SAG_ILERLE, 0);
+  analogWrite(SAG_GERI, hiz);
+}
+
+void dur() {
+  analogWrite(SOL_ILERLE, 0);
+  analogWrite(SOL_GERI, 0);
+  analogWrite(SAG_ILERLE, 0);
+  analogWrite(SAG_GERI, 0);
+}
+
+void donus360(int hiz) {
+
+  if (hiz > 0) {
+    analogWrite(SOL_ILERLE, 0);
+    analogWrite(SOL_GERI, hiz+30);
+    analogWrite(SAG_ILERLE, hiz+30);
+    analogWrite(SAG_GERI, 0);
+    delay(900);
+    while (true) {
+      analogWrite(SOL_ILERLE, 0);
+      analogWrite(SOL_GERI, hiz+30);
+      analogWrite(SAG_ILERLE, hiz+30);
+      analogWrite(SAG_GERI, 0);
+
+      int s1 = Sol.ReadLineFollowerDigital1();
+      int s2 = Sol.ReadLineFollowerDigital2();
+      int m1 = Orta.ReadLineFollowerDigital1();
+      int m2 = Orta.ReadLineFollowerDigital2();
+      int d1 = Sag.ReadLineFollowerDigital1();
+      int d2 = Sag.ReadLineFollowerDigital2();
+
+      if (s1 || s2 || m1 || m2 || d1 || d2) {
+        break;
+      }
+    }
+  } else {
+    hiz = -hiz;
+    analogWrite(SOL_ILERLE, hiz+30);
+    analogWrite(SOL_GERI, 0);
+    analogWrite(SAG_ILERLE, 0);
+    analogWrite(SAG_GERI, hiz+30);
+    delay(900);
+
+    while (true) {
+      analogWrite(SOL_ILERLE, hiz+30);
+      analogWrite(SOL_GERI, 0);
+      analogWrite(SAG_ILERLE, 0);
+      analogWrite(SAG_GERI, hiz+30);
+
+      int s1 = Sol.ReadLineFollowerDigital1();
+      int s2 = Sol.ReadLineFollowerDigital2();
+      int m1 = Orta.ReadLineFollowerDigital1();
+      int m2 = Orta.ReadLineFollowerDigital2();
+      int d1 = Sag.ReadLineFollowerDigital1();
+      int d2 = Sag.ReadLineFollowerDigital2();
+
+      if (s1 || s2 || m1 || m2 || d1 || d2) {
+        break;
+      }
+    }
+  }
+  dur();
+}
+
+void kenar_sag() {
+      dur(); // Önce dur
+      digitalWrite(BUZZER, HIGH);
+      delay(500);
+      digitalWrite(BUZZER, LOW);
+      
+      // Üç sensör çizgi algılayana kadar PID ile ilerle
+      while (!((Sol.ReadLineFollowerDigital1() && Sol.ReadLineFollowerDigital2() && 
+                Orta.ReadLineFollowerDigital1()) || (Orta.ReadLineFollowerDigital2() && 
+                Sag.ReadLineFollowerDigital1() && Sag.ReadLineFollowerDigital2()) )) {
+
+        // Sensörleri oku
+        s1 = Sol.ReadLineFollowerDigital1();
+        s2 = Sol.ReadLineFollowerDigital2();
+        m1 = Orta.ReadLineFollowerDigital1();
+        m2 = Orta.ReadLineFollowerDigital2();
+        d1 = Sag.ReadLineFollowerDigital1();
+        d2 = Sag.ReadLineFollowerDigital2();
+
+        // PID hesaplaması
+        int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+        hata = 0 - pozisyon;
+        P = hata;
+        I += hata;
+        D = hata - oncekiHata;
+        oncekiHata = hata;
+
+        int duzeltme = P * Kp + I * Ki + D * Kd;
+
+        solHiz = motorHiziTemel - duzeltme;
+        sagHiz = motorHiziTemel + duzeltme;
+
+        solHiz = constrain(solHiz, -maxHiz, maxHiz);
+        sagHiz = constrain(sagHiz, -maxHiz, maxHiz);
+
+        ileri(solHiz, sagHiz);
+        delay(10);
+      }
+      dur(); // Çizgi algılandığında dur
+      delay(500); // Kısa bir duraklama
+      ileri(100, 100);
+      delay(1000);
+      donus360(100);
+      digitalWrite(BUZZER, HIGH);
+      delay(1000);
+      digitalWrite(BUZZER, LOW);
+      erc++;
+            }
+
+
+
+            
+void ikili_sag() {
+      dur(); // Önce dur
+      digitalWrite(BUZZER, HIGH);
+      delay(500);
+      digitalWrite(BUZZER, LOW);
+      
+      while (!((Sol.ReadLineFollowerDigital1() && Sol.ReadLineFollowerDigital2() && 
+                Orta.ReadLineFollowerDigital1()) && (Orta.ReadLineFollowerDigital2() && 
+                Sag.ReadLineFollowerDigital1() && Sag.ReadLineFollowerDigital2()) )) {
+        // Sensörleri oku
+        s1 = Sol.ReadLineFollowerDigital1();
+        s2 = Sol.ReadLineFollowerDigital2();
+        m1 = Orta.ReadLineFollowerDigital1();
+        m2 = Orta.ReadLineFollowerDigital2();
+        d1 = Sag.ReadLineFollowerDigital1();
+        d2 = Sag.ReadLineFollowerDigital2();
+
+        // PID hesaplaması
+        int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+        hata = 0 - pozisyon;
+        P = hata;
+        I += hata;
+        D = hata - oncekiHata;
+        oncekiHata = hata;
+
+        int duzeltme = P * Kp + I * Ki + D * Kd;
+
+        solHiz = motorHiziTemel - duzeltme;
+        sagHiz = motorHiziTemel + duzeltme;
+
+        solHiz = constrain(solHiz, -maxHiz, maxHiz);
+        sagHiz = constrain(sagHiz, -maxHiz, maxHiz);
+
+        ileri(solHiz, sagHiz);
+        delay(10);
+      }
+      dur(); // Çizgi algılandığında dur
+      delay(500); // Kısa bir duraklama
+      ileri(100, 100);
+      delay(1000);
+      donus360(100);
+      digitalWrite(BUZZER, HIGH);
+      delay(1000);
+      digitalWrite(BUZZER, LOW);
+      erc++;
+            }
+
+void kenar_sol() {
+      dur(); // Önce dur
+      digitalWrite(BUZZER, HIGH);
+      delay(500);
+      digitalWrite(BUZZER, LOW);
+      
+      // Üç sensör çizgi algılayana kadar PID ile ilerle
+      while (!((Sol.ReadLineFollowerDigital1() && Sol.ReadLineFollowerDigital2() && 
+                Orta.ReadLineFollowerDigital1()) || (Orta.ReadLineFollowerDigital2() && 
+                Sag.ReadLineFollowerDigital1() && Sag.ReadLineFollowerDigital2()) )) {
+
+        // Sensörleri oku
+        s1 = Sol.ReadLineFollowerDigital1();
+        s2 = Sol.ReadLineFollowerDigital2();
+        m1 = Orta.ReadLineFollowerDigital1();
+        m2 = Orta.ReadLineFollowerDigital2();
+        d1 = Sag.ReadLineFollowerDigital1();
+        d2 = Sag.ReadLineFollowerDigital2();
+
+        // PID hesaplaması
+        int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+        hata = 0 - pozisyon;
+        P = hata;
+        I += hata;
+        D = hata - oncekiHata;
+        oncekiHata = hata;
+
+        int duzeltme = P * Kp + I * Ki + D * Kd;
+
+        solHiz = motorHiziTemel - duzeltme;
+        sagHiz = motorHiziTemel + duzeltme;
+
+        solHiz = constrain(solHiz, -maxHiz, maxHiz);
+        sagHiz = constrain(sagHiz, -maxHiz, maxHiz);
+
+        ileri(solHiz, sagHiz);
+        delay(10);
+      }
+      dur(); // Çizgi algılandığında dur
+      delay(500); // Kısa bir duraklama
+      ileri(100, 100);
+      delay(1000);
+      donus360(-100);
+      digitalWrite(BUZZER, HIGH);
+      delay(1000);
+      digitalWrite(BUZZER, LOW);
+      erc++;
+            }
+
+
+
+            
+void ikili_sol() {
+      dur(); // Önce dur
+      digitalWrite(BUZZER, HIGH);
+      delay(500);
+      digitalWrite(BUZZER, LOW);
+      
+      while (!((Sol.ReadLineFollowerDigital1() && Sol.ReadLineFollowerDigital2() && 
+                Orta.ReadLineFollowerDigital1()) && (Orta.ReadLineFollowerDigital2() && 
+                Sag.ReadLineFollowerDigital1() && Sag.ReadLineFollowerDigital2()) )) {
+        // Sensörleri oku
+        s1 = Sol.ReadLineFollowerDigital1();
+        s2 = Sol.ReadLineFollowerDigital2();
+        m1 = Orta.ReadLineFollowerDigital1();
+        m2 = Orta.ReadLineFollowerDigital2();
+        d1 = Sag.ReadLineFollowerDigital1();
+        d2 = Sag.ReadLineFollowerDigital2();
+
+        // PID hesaplaması
+        int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+        hata = 0 - pozisyon;
+        P = hata;
+        I += hata;
+        D = hata - oncekiHata;
+        oncekiHata = hata;
+
+        int duzeltme = P * Kp + I * Ki + D * Kd;
+
+        solHiz = motorHiziTemel - duzeltme;
+        sagHiz = motorHiziTemel + duzeltme;
+
+        solHiz = constrain(solHiz, -maxHiz, maxHiz);
+        sagHiz = constrain(sagHiz, -maxHiz, maxHiz);
+
+        ileri(solHiz, sagHiz);
+        delay(10);
+      }
+      dur(); // Çizgi algılandığında dur
+      delay(500); // Kısa bir duraklama
+      ileri(100, 100);
+      delay(1000);
+      donus360(-100);
+      digitalWrite(BUZZER, HIGH);
+      delay(1000);
+      digitalWrite(BUZZER, LOW);
+      erc++;
+            }
+
+void yukal(){
+       dur(); // Önce dur
+      digitalWrite(BUZZER, HIGH);
+      delay(500);
+      digitalWrite(BUZZER, LOW);
+
+      donus360(100);
+unsigned long baslangicZamani = millis();
+while (millis() - baslangicZamani < 10000) {  // 3000 ms = 3 saniye
+  // Sensörleri oku
+  s1 = Sol.ReadLineFollowerDigital1();
+  s2 = Sol.ReadLineFollowerDigital2();
+  m1 = Orta.ReadLineFollowerDigital1();
+  m2 = Orta.ReadLineFollowerDigital2();
+  d1 = Sag.ReadLineFollowerDigital1();
+  d2 = Sag.ReadLineFollowerDigital2();
+  // PID hesaplaması
+  int pozisyon = (-3)*s1 + (-2)*s2 + (0)*m1 + (0)*m2 + (2)*d1 + (3)*d2;
+  hata = 0 - pozisyon;
+  P = hata;
+  I += hata;
+  D = hata - oncekiHata;
+  oncekiHata = hata;
+
+  // BURADA Kp YERİNE geriKp KULLANIN
+  int duzeltme = P * geriKp + I * Ki + D * Kd;
+
+  solHiz = motorHiziTemel - duzeltme;
+  sagHiz = motorHiziTemel + duzeltme;
+  solHiz = constrain(solHiz, -maxHiz, maxHiz);
+  sagHiz = constrain(sagHiz, -maxHiz, maxHiz);
+  geri_pid(solHiz/2, sagHiz/2); // geri_pid hızları alıyor
+  delay(10);  // Döngü hızını kontrol etmek için kısa bekleme
+}
+dur();
+delay(2000);
+erc++;
+}
